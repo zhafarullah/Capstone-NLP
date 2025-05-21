@@ -103,7 +103,7 @@ def recommend_recipes(text, top_n=5):
         qty_num = parse_number(it['quantity'])
         unit = it['unit'].lower()
         ing = it['ingredient']
-        mask_name = df_exploded['name'].str.contains(re.escape(ing), case=False, na=False)
+        mask_name = df_exploded['pure_name'].str.contains(re.escape(ing), case=False, na=False)
 
         factor_in = UNIT_FACTORS.get(unit)
         factors = df_exploded['unit'].map(UNIT_FACTORS)
