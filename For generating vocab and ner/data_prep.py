@@ -9,7 +9,7 @@ df = pd.read_csv('/content/drive/MyDrive/nama_file.csv')
 
 # 2) Ekstrak daftar unique ingredients
 INGREDIENTS = sorted(
-    df['name']
+    df['pure_name']
       .dropna()
       .astype(str)
       .str.strip()
@@ -27,6 +27,49 @@ auto_qtys  = set(raw_qtys.unique().tolist())
 
 # 4) Daftar manual tambahan (sinonim, plural, verbal, fractions, etc)
 MANUAL_UNITS = {
+    # Volume (US)
+    'tsp':      'tsp',  'teaspoon': 'tsp',  'teaspoons': 'tsp',
+    'tbsp':     'tbsp', 'tablespoon':'tbsp','tablespoons':'tbsp',
+    'cup':      'cup',  'cups':      'cup',  'c':    'cup',
+    'pt':       'pt',   'pint':      'pt',   'pints':'pt',
+    'qt':       'qt',   'quart':     'qt',   'quarts':'qt',
+    'gal':      'gal',  'gallon':    'gal',  'gallons':'gal',
+
+    # SI Volume
+    'ml':       'ml',   'milliliter':'ml','milliliters':'ml','millilitre':'ml','millilitres':'ml',
+    'l':        'l',    'liter':     'l',    'liters':'l','litre':'l','litres':'l',
+    'dl':       'dl',   'deciliter':'dl','deciliters':'dl','decilitre':'dl','decilitres':'dl',
+
+    # Massa/Berat
+    'mg':       'mg',   'milligram':'mg','milligrams':'mg',
+    'g':        'g',    'gram':      'g',    'grams':'g',
+    'kg':       'kg',   'kilogram':  'kg',   'kilograms':'kg',
+    'oz':       'oz',   'ounce':     'oz',   'ounces':'oz',
+    'lb':       'lb',   'lbs':       'lb',   'pound':'lb','pounds':'lb',
+
+    # Hitungan / satuan lain
+    'piece':    'piece','pieces':    'piece',
+    'slice':    'slice','slices':    'slice',
+    'can':      'can',  'cans':      'can',
+    'jar':      'jar',  'jars':      'jar',
+    'bottle':   'bottle','bottles':  'bottle',
+    'package':  'package','packages': 'package',
+    'packet':   'packet','packets':  'packet',
+    'bunch':    'bunch','bunches':   'bunch',
+    'stalk':    'stalk','stalks':    'stalk',
+    'clove':    'clove','cloves':    'clove',
+    'leaf':     'leaf', 'leaves':    'leaf',
+    'sprig':    'sprig','sprigs':    'sprig',
+    'head':     'head', 'heads':     'head',
+    'fillet':   'fillet','fillets':  'fillet',
+    'stick':    'stick','sticks':    'stick',
+    'bar':      'bar',  'bars':      'bar',
+    'cube':     'cube', 'cubes':     'cube',
+    'strip':    'strip','strips':    'strip',
+    'drop':     'drop', 'drops':     'drop',
+    'sheet':    'sheet','sheets':    'sheet',
+    'ear':      'ear',  'ears':      'ear',
+    'bulb':     'bulb', 'bulbs':     'bulb',
 }
 
 MANUAL_QTY = {
@@ -60,7 +103,7 @@ UNITS = [u for u in UNITS if not pattern_clean.match(u)]
 QUANTITIES = [q for q in QUANTITIES if not pattern_clean.match(q)]
 
 # 8) Save to JSON
-with open('vocab_lists2.json', 'w') as f:
+with open('vocab_lists.json', 'w') as f:
     json.dump({
         "INGREDIENTS": INGREDIENTS,
         "UNITS":       UNITS,
