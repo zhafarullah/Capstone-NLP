@@ -9,6 +9,7 @@ from pprint import pprint
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras.models import load_model
 import pickle
+from rapidfuzz import fuzz, process
 
 # — Load machine learning artifacts
 model = load_model('best_ner_bilstm.h5')
@@ -25,15 +26,28 @@ df_exploded = pd.read_csv(
         'Cleaned_Ingredients': lambda x: ast.literal_eval(x) if isinstance(x, str) else x
     }
 )
-
+df_exploded['pure_name'] = df_exploded['pure_name'].fillna('').astype(str)
+PURE_NAMES = df_exploded['pure_name'].unique().tolist()
 # — Faktor konversi satuan (basis gram/ml)
+
 UNIT_FACTORS = {
-    'kg':1000, 'kilo':1000, 'g':1, 'gram':1,
-    'l':1000, 'ml':1, 'pound':453.592, 'lb':453.592,
-    'ounce':28.3495, 'oz':28.3495,
-    'teaspoon':4.92892, 'tsp':4.92892,
-    'tablespoon':14.7868, 'tbsp':14.7868,
-    'cup':240, 'cups':240, 'quart':946.353, 'pt':473.176
+    # Mass
+    'mg': 0.001, 'milligram': 0.001, 'milligrams': 0.001,
+    'g': 1, 'gram': 1, 'grams': 1,
+    'kg': 1000, 'kilo': 1000, 'kilogram': 1000, 'kilograms': 1000,
+    'oz': 28.3495, 'ounce': 28.3495, 'ounces': 28.3495,
+    'lb': 453.592, 'lbs': 453.592, 'pound': 453.592, 'pounds': 453.592,
+
+    # Volume (assume density ≈ water)
+    'ml': 1, 'milliliter': 1, 'milliliters': 1, 'millilitre': 1, 'millilitres': 1,
+    'l': 1000, 'liter': 1000, 'litre': 1000, 'liters': 1000, 'litres': 1000,
+    'dl': 100, 'deciliter': 100, 'deciliters': 100, 'decilitre': 100, 'decilitres': 100,
+    'tsp': 4.92892, 'teaspoon': 4.92892, 'teaspoons': 4.92892,
+    'tbsp': 14.7868, 'tablespoon': 14.7868, 'tablespoons': 14.7868,
+    'cup': 240, 'cups': 240, 'c': 240,
+    'pt': 473.176, 'pint': 473.176, 'pints': 473.176,
+    'qt': 946.353, 'quart': 946.353, 'quarts': 946.353,
+    'gal': 3785.41, 'gallon': 3785.41, 'gallons': 3785.41,
 }
 
 # — Helper: konversi string kuantitas → angka
@@ -44,7 +58,7 @@ def parse_number(q):
             return float(Fraction(q))
         except:
             pass
-    WORD2NUM = {'half':0.5, 'one':1, 'two':2, 'three':3, 'four':4}
+    WORD2NUM = {'half':0.5, 'one':1, 'two':2, 'three':3, 'four':4, 'five':5, 'six':6, 'seven':7, 'eight':8}
     if q in WORD2NUM:
         return WORD2NUM[q]
     try:
@@ -92,7 +106,7 @@ def parse_ingredients(text):
     return items
 
 # — Fungsi rekomendasi resep berdasarkan bahan parsed
-def recommend_recipes(text, top_n=5):
+def recommend_recipes(text, top_n=5, fuzzy_threshold=75):
     items = parse_ingredients(text)
     pprint(items)
     if not items:
@@ -101,30 +115,58 @@ def recommend_recipes(text, top_n=5):
     title_sets = []
     for it in items:
         qty_num = parse_number(it['quantity'])
-        unit = it['unit'].lower()
-        ing = it['ingredient']
-        mask_name = df_exploded['pure_name'].str.contains(re.escape(ing), case=False, na=False)
+        unit    = (it['unit'] or '').lower()
+        ing     = (it['ingredient'] or '').lower()
 
+        # — Cari usulan nama terdekat (top 3)
+        suggestions = process.extract(
+            ing,
+            PURE_NAMES,
+            scorer=fuzz.token_set_ratio,
+            limit=3
+        )
+        # — Filter yang skor >= threshold
+        good = [(name, score) for name, score, _ in suggestions if score >= fuzzy_threshold]
+        if good:
+            print(f">>> Input '{ing}' matched to:")
+            for name, score in good:
+                print(f"    • {name} (score {score}%)")
+        else:
+            print(f">>> No good fuzzy match for '{ing}' (top was {suggestions[0][1]}%)")
+
+        # — Buat mask berdasarkan fuzzy_threshold
+        mask_name = df_exploded['pure_name'].apply(
+            lambda x: fuzz.token_set_ratio(str(x).lower(), ing) >= fuzzy_threshold
+        )
+
+        # — Filter kuantitas seperti biasa
         factor_in = UNIT_FACTORS.get(unit)
-        factors = df_exploded['unit'].map(UNIT_FACTORS)
+        factors   = df_exploded['unit'].map(UNIT_FACTORS)
         if factor_in and qty_num is not None:
-            avail = qty_num * factor_in
-            mask_conv = mask_name & factors.notna() & ((df_exploded['quantity'] * factors) <= avail)
+            avail     = qty_num * factor_in
+            mask_conv = (
+                mask_name &
+                factors.notna() &
+                ((df_exploded['quantity'] * factors) <= avail)
+            )
         else:
             mask_conv = pd.Series(False, index=df_exploded.index)
 
         if qty_num is not None:
-            mask_fb = mask_name & \
-                      (df_exploded['unit'].str.lower() == unit) & \
-                      (df_exploded['quantity'] <= qty_num)
+            mask_fb = (
+                mask_name &
+                (df_exploded['unit'].str.lower() == unit) &
+                (df_exploded['quantity'] <= qty_num)
+            )
         else:
             mask_fb = pd.Series(False, index=df_exploded.index)
 
-        mask = mask_conv | mask_fb
+        mask   = mask_conv | mask_fb
         titles = set(df_exploded.loc[mask, 'Title_Cleaned'])
         if titles:
             title_sets.append(titles)
 
+    # — Sisa logika intersection dan head(top_n) tetap sama…
     if not title_sets:
         return pd.DataFrame(columns=['Title_Cleaned', 'Instructions_Cleaned', 'Cleaned_Ingredients'])
 
@@ -137,9 +179,7 @@ def recommend_recipes(text, top_n=5):
         .drop_duplicates(subset=['Title_Cleaned'])
         .loc[:, ['Title_Cleaned', 'Instructions_Cleaned', 'Cleaned_Ingredients']]
     )
-
     return df_meta[df_meta['Title_Cleaned'].isin(common)].head(top_n)
-
 # — Main program: input dan cetak hasil rekomendasi
 def main():
     text = input("Masukkan bahan makanan: ")
